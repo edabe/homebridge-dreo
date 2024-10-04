@@ -24,9 +24,11 @@ Homebridge plugin for Dreo brand smart devices. [Dreo Fans on Amazon](https://ww
 * DR-HTF007S
 #### Pedestal Fans
 * DR-HPF001S
+* DR-HPF002S
 * DR-HAF003S
-#### Other Fans
-* DR-HAF004S (Table Fan)
+#### Table Fans
+* DR-HAF001S
+* DR-HAF004S
 
 Please open an issue if you have another model that works or doesn't work. The plugin *should* also be compatible with multiple devices on the same account but I haven't tested this. Non-fan smart devices are not supported at this time, but if you have another device and can help me test some code out I would definitely be open to adding support.
 

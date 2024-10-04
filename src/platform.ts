@@ -46,9 +46,8 @@ export class DreoPlatform implements DynamicPlatformPlugin {
   }
 
   /**
-   * This is an example method showing how to register discovered accessories.
-   * Accessories must only be registered once, previously created accessories
-   * must not be registered again to prevent "duplicate UUID" errors.
+   * Log into Dreo services, retrieve the user's devices, and register them as accessories
+   * Also remove accessories that are no longer present on the user's account
    */
   async discoverDevices() {
     const email = this.config.options.email;
@@ -66,8 +65,8 @@ export class DreoPlatform implements DynamicPlatformPlugin {
     }
 
     // Request access token from Dreo server
-    let auth = await new DreoAPI().authenticate(this, email, password, 'us');
-    this.log.debug('\n\nREMOTE:\n', auth);
+    const webHelper = new DreoAPI(this.log, email, password);
+    let auth = await webHelper.authenticate();
     // Check if access_token is valid
     if (auth === undefined) {
       this.log.error('Authentication error: Failed to obtain access_token');
@@ -76,19 +75,18 @@ export class DreoPlatform implements DynamicPlatformPlugin {
     this.log.info('Country:', auth.countryCode);
     this.log.info('Region:', auth.region);
 
-    if (auth.region === 'NA') {
-      auth.server = 'us';
-    } else if (auth.region === 'EU') {
-      auth = await new DreoAPI().authenticate(this, email, password, 'eu');
-      auth.server = 'eu';
-    } else {
+    // Re-authenticate with EU server if european account is detected
+    if (auth.region === 'EU') {
+      webHelper.server = 'eu';
+      auth = await webHelper.authenticate();
+    } else if (auth.region !== 'NA') {
       this.log.error('error, unknown region');
       this.log.error('Please open a github issue and provide your Country and Region (shown above)');
       return;
     }
 
     // Use access token to retrieve user's devices
-    const dreoDevices = await new DreoAPI().getDevices(this, auth);
+    const dreoDevices = await webHelper.getDevices();
     this.log.debug('\n\nDEVICES:\n', dreoDevices);
     // Check for device list
     if (dreoDevices === undefined) {
@@ -96,8 +94,18 @@ export class DreoPlatform implements DynamicPlatformPlugin {
       return;
     }
 
+    // Create a set of UUIDs for the currently discovered devices
+    const discoveredDeviceUUIDs = new Set(dreoDevices.map(device => this.api.hap.uuid.generate(device.sn)));
+
+    // Unregister accessories that are no longer present
+    const accessoriesToRemove = this.accessories.filter(accessory => !discoveredDeviceUUIDs.has(accessory.UUID));
+    if (accessoriesToRemove.length > 0) {
+      this.api.unregisterPlatformAccessories(PLUGIN_NAME, PLATFORM_NAME, accessoriesToRemove);
+      this.log.info('Removing accessories:', accessoriesToRemove.map(accessory => accessory.displayName).join(', '));
+    }
+
     // Open WebSocket (used to control devices later)
-    const ws = await new DreoAPI().startWebSocket(this, auth);
+    const ws = await webHelper.startWebSocket();
 
     // Loop over the discovered devices and register each one if it has not already been registered
     for (const device of dreoDevices) {
@@ -112,7 +120,7 @@ export class DreoPlatform implements DynamicPlatformPlugin {
       const existingAccessory = this.accessories.find(accessory => accessory.UUID === uuid);
 
       // Get initial device state
-      const state = await new DreoAPI().getState(this, device.sn, auth);
+      const state = await webHelper.getState(device.sn);
       if (state === undefined) {
         this.log.error('error: Failed to retrieve device state');
         return;
